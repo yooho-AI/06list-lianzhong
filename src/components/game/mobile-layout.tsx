@@ -34,7 +34,6 @@ function MobileHeader({
   const { isPlaying, toggle } = useBgm()
 
   const period = PERIODS[currentPeriodIndex]
-  const scene = SCENES[currentScene]
   const char = currentCharacter ? CHARACTERS[currentCharacter] : null
 
   return (

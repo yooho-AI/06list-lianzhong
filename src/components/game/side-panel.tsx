@@ -5,7 +5,7 @@
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
-import { useGameStore, ITEMS, CHARACTERS, getAvailableCharacters, getAffectionLevel, getRelationLabel } from '@/lib/store'
+import { useGameStore, ITEMS, getAvailableCharacters, getAffectionLevel, getRelationLabel } from '@/lib/store'
 
 // ============================================================
 // 背包面板

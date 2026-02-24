@@ -10,11 +10,10 @@ import { immer } from 'zustand/middleware/immer'
 import { streamChat, chat } from '@/lib/stream'
 import { trackGameStart, trackGameContinue, trackTimeAdvance, trackModeSelect, trackChapterEnter } from '@/lib/analytics'
 import {
-  type PlayMode, type CharacterStats, type Message,
-  CHARACTERS, SCENES, ITEMS, PERIODS, CHAPTERS,
+  type PlayMode, type Character, type CharacterStats, type Message,
+  CHARACTERS, SCENES, ITEMS, PERIODS,
   MAX_DAYS, MAX_ACTION_POINTS,
   getAffectionLevel, getAvailableCharacters, getCurrentChapter, getDayEvents,
-  STORY_INFO,
 } from '@/lib/data'
 
 // ============================================================
@@ -116,7 +115,7 @@ function parseStatChanges(content: string): Array<{ charId: string; stat: keyof 
 // System Prompt 构建
 // ============================================================
 
-function buildSystemPrompt(state: GameState, char: ReturnType<typeof CHARACTERS[string]> | null): string {
+function buildSystemPrompt(state: GameState, char: Character | null): string {
   const period = PERIODS[state.currentPeriodIndex]
   const scene = SCENES[state.currentScene]
   const chapter = getCurrentChapter(state.currentDay)
