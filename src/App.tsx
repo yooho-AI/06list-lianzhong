@@ -201,6 +201,7 @@ function MenuOverlay({ onClose }: { onClose: () => void }) {
           <button className="lz-modal-btn" onClick={() => { saveGame(); onClose() }}>💾 保存游戏</button>
           <button className="lz-modal-btn" onClick={() => { loadGame(); onClose() }}>📂 读取存档</button>
           <button className="lz-modal-btn" onClick={() => resetGame()}>🏠 返回标题</button>
+          <button className="lz-modal-btn" onClick={() => window.open('https://yooho.ai/', '_blank')}>🌐 返回主页</button>
           <button className="lz-modal-btn" onClick={onClose}>▶️ 继续游戏</button>
         </div>
       </motion.div>
