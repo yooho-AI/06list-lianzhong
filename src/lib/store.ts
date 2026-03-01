@@ -1,20 +1,26 @@
 /**
- * [INPUT]: 依赖 zustand, immer, @/lib/stream, @/lib/analytics, @/lib/data
- * [OUTPUT]: 对外提供 useGameStore
- * [POS]: 恋综模拟器状态管理中枢，双模式逻辑，驱动整个游戏
+ * [INPUT]: 依赖 zustand, immer, @/lib/stream, @/lib/analytics, @/lib/data, @/lib/parser, script.md
+ * [OUTPUT]: 对外提供 useGameStore + 重导出 data/parser
+ * [POS]: 恋综模拟器状态管理中枢，双模式逻辑，富消息插入，选项提取，剧本直通
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { streamChat, chat } from '@/lib/stream'
-import { trackGameStart, trackGameContinue, trackTimeAdvance, trackModeSelect, trackChapterEnter } from '@/lib/analytics'
 import {
-  type PlayMode, type Character, type CharacterStats, type Message,
-  CHARACTERS, SCENES, ITEMS, PERIODS,
+  trackGameStart, trackGameContinue, trackTimeAdvance,
+  trackModeSelect, trackChapterEnter, trackEndingReached,
+  trackSceneUnlock,
+} from '@/lib/analytics'
+import { extractChoices } from '@/lib/parser'
+import {
+  type PlayMode, type Character, type CharacterStats, type Message, type StoryRecord,
+  CHARACTERS, SCENES, ITEMS, PERIODS, QUICK_ACTIONS, STORY_INFO,
   MAX_DAYS, MAX_ACTION_POINTS,
   getAffectionLevel, getAvailableCharacters, getCurrentChapter, getDayEvents,
 } from '@/lib/data'
+import GAME_SCRIPT from './script.md?raw'
 
 // ============================================================
 // Store 类型
@@ -31,6 +37,7 @@ interface GameState {
   characterStats: Record<string, CharacterStats>
   currentChapter: number
   triggeredEvents: string[]
+  unlockedScenes: string[]
   inventory: Record<string, number>
   dailyItemUsage: Record<string, number>
   messages: Message[]
@@ -38,16 +45,23 @@ interface GameState {
   isTyping: boolean
   streamingContent: string
   endingType: string | null
-  activePanel: 'inventory' | 'relations' | null
+  activeTab: 'dialogue' | 'scene' | 'character'
+  showDashboard: boolean
+  showRecords: boolean
+  storyRecords: StoryRecord[]
+  choices: string[]
+  playerName: string
 }
 
 interface GameActions {
+  setPlayerInfo: (name: string) => void
   selectPlayMode: (mode: PlayMode) => void
   initGame: () => void
   selectCharacter: (id: string | null) => void
   selectScene: (id: string) => void
-  togglePanel: (panel: 'inventory' | 'relations') => void
-  closePanel: () => void
+  setActiveTab: (tab: 'dialogue' | 'scene' | 'character') => void
+  toggleDashboard: () => void
+  toggleRecords: () => void
   sendMessage: (text: string) => Promise<void>
   advanceTime: () => void
   useItem: (itemId: string) => void
@@ -71,7 +85,7 @@ function makeId() {
   return `msg-${Date.now()}-${++messageCounter}`
 }
 
-const SAVE_KEY = 'lianzhong-save-v1'
+const SAVE_KEY = 'lianzhong-save-v2'
 
 function buildInitialStats(): Record<string, CharacterStats> {
   return Object.fromEntries(
@@ -121,7 +135,6 @@ function buildSystemPrompt(state: GameState, char: Character | null): string {
   const chapter = getCurrentChapter(state.currentDay)
   const availableChars = getAvailableCharacters(state.currentDay)
 
-  /* 所有可见角色数值摘要 */
   const allStats = Object.entries(availableChars)
     .map(([id, c]) => {
       const s = state.characterStats[id]
@@ -130,80 +143,34 @@ function buildSystemPrompt(state: GameState, char: Character | null): string {
     })
     .join('\n')
 
-  /* 模式上下文 */
-  const modeContext = state.playMode === 'liumei'
-    ? `## 玩家身份
-玩家扮演刘枚（52岁退休舞蹈教师），以第一人称视角参与恋综。
-玩家的目标是在 15 天合宿中找到真爱，与心动的男嘉宾配对成功。
-其他女嘉宾是竞争对手也是朋友，需要处理好姐妹关系。
-男嘉宾们各有特点，玩家需要通过互动来选择最心仪的对象。`
-    : `## 玩家身份
-玩家是一位空降嘉宾（性别不限），中途加入恋综合宿。
-作为后来者，玩家需要在既有关系格局中找到自己的位置。
-所有 10 位嘉宾（5男5女）都可以成为玩家的互动对象。
-玩家需要提升声望值来获得其他嘉宾的认可。`
+  const modeLabel = state.playMode === 'liumei' ? '扮演刘枚' : '空降入局'
+  const playerLabel = state.playerName ? `\n玩家名：${state.playerName}` : ''
+  const charInfo = char
+    ? `\n当前互动角色：${char.name}（${char.title}，${char.age}岁）\n当前关系：${getAffectionLevel(state.characterStats[char.id]?.affection ?? 0).name}（好感${state.characterStats[char.id]?.affection} 嫉妒${state.characterStats[char.id]?.jealousy} 厌恶${state.characterStats[char.id]?.disgust} 声望${state.characterStats[char.id]?.reputation}）`
+    : ''
 
-  let prompt = `你是恋爱综艺模拟游戏《黄昏时分说爱你》的 AI 叙述者兼导演。
+  return `你是《${STORY_INFO.title}》的AI叙述者兼导演。
 
-## 节目背景
-大理洱海畔的合宿别墅，十位 50+ 熟龄嘉宾参加为期 15 天的恋爱综艺节目。
-这不是年轻人的心动，而是经历过人生风雨的人们，重新鼓起勇气去爱的故事。
-每个人都带着过去的伤痕和对未来的期待，在这片苍山洱海间寻找迟来的爱情。
+## 游戏剧本
+${GAME_SCRIPT}
 
-${modeContext}
+## 当前状态
+玩家模式：${modeLabel}${playerLabel}
+第${state.currentDay}/${MAX_DAYS}天 · ${period.name}
+行动力：${state.actionPoints}/${MAX_ACTION_POINTS}
+场景：${scene?.name || '客厅'}
+第${chapter.id}章「${chapter.name}」
+${charInfo}
 
-## 叙述风格
-- 综艺恋综风格：轻松幽默有戏剧张力，像在看一档真人秀
-- 用第三人称描写场景和旁白，营造"镜头感"和"画面感"
-- 角色对话用【角色名】前缀标记，动作用（）包裹
-- 对话用中文双引号""
-- 偶尔加入"综艺画外音"或"弹幕风格"的旁白增加趣味
-- 50+ 的角色说话要符合年龄——成熟、有阅历、不矫情
-- 数值变化用【角色名 好感度+5】格式标注
-- 每次回复末尾必须输出当前状态，格式：
-  第X/${MAX_DAYS}天 ${period?.name || '清晨'} 行动力X/${MAX_ACTION_POINTS}
-  角色名 好感X 嫉妒X 厌恶X 声望X | ...（列出所有可见角色）
+## 嘉宾数值
+${allStats}
 
-## 当前章节
-第${chapter.id}章「${chapter.name}」(Day ${chapter.dayRange[0]}-${chapter.dayRange[1]})
-${chapter.description}
-章节目标: ${chapter.objectives.join('、')}
-叙事氛围: ${chapter.atmosphere}
-
-## NPC 行为准则
-- 好感 0-29: 礼貌但保持距离，不会主动找玩家
-- 好感 30-59: 开始关注玩家，偶尔主动搭话，态度友善
-- 好感 60-79: 明显的好感信号，会吃醋，约会时更主动
-- 好感 80-100: 心意相通，深情流露，可能主动告白
-- 嫉妒 > 40: 说话带刺，追问玩家和其他人的关系
-- 厌恶 > 40: 冷淡回避，言语中有攻击性
-- 声望 > 60: 其他嘉宾在背后夸奖玩家
-- 声望 < 30: 被孤立，难以获得约会机会`
-
-  if (char) {
-    const stats = state.characterStats[char.id]
-    const level = getAffectionLevel(stats?.affection ?? 0)
-    prompt += `\n\n## 当前互动角色
-- 姓名：${char.name}（${char.title}，${char.age}岁，${char.gender === 'female' ? '女' : '男'}）
-- 性格：${char.personality}
-- 简介：${char.description}
-- 说话风格：${char.speakingStyle}
-- 行为模式：${char.behaviorPatterns}
-- 雷点：${char.triggerPoints.join('、')}
-- 当前关系：${level.name}（好感${stats?.affection} 嫉妒${stats?.jealousy} 厌恶${stats?.disgust} 声望${stats?.reputation}）
-- 隐藏秘密：${char.secret}（好感≥60 且时机合适时才可能透露）`
-  }
-
-  prompt += `\n\n## 当前状态
-- 时间：第 ${state.currentDay}/${MAX_DAYS} 天 · ${period?.name}
-- 行动力：${state.actionPoints}/${MAX_ACTION_POINTS}
-- 场景：${scene?.icon} ${scene?.name} — ${scene?.description}
-- 场景氛围：${scene?.atmosphere}
-
-## 所有嘉宾当前数值（已入住的）
-${allStats}`
-
-  return prompt
+## 选项要求
+每次回复末尾必须给出恰好4个选项，格式：
+1. 选项一
+2. 选项二
+3. 选项三
+4. 选项四`
 }
 
 // ============================================================
@@ -223,6 +190,7 @@ export const useGameStore = create<GameStore>()(
     characterStats: buildInitialStats(),
     currentChapter: 1,
     triggeredEvents: [],
+    unlockedScenes: ['living-room', 'garden', 'terrace'],
     inventory: {},
     dailyItemUsage: {},
     messages: [],
@@ -230,9 +198,18 @@ export const useGameStore = create<GameStore>()(
     isTyping: false,
     streamingContent: '',
     endingType: null,
-    activePanel: null,
+    activeTab: 'dialogue' as const,
+    showDashboard: false,
+    showRecords: false,
+    storyRecords: [],
+    choices: [...QUICK_ACTIONS],
+    playerName: '',
 
     // --- 操作 ---
+    setPlayerInfo: (name) => {
+      set((s) => { s.playerName = name })
+    },
+
     selectPlayMode: (mode) => {
       set((s) => { s.playMode = mode })
       trackModeSelect(mode)
@@ -250,41 +227,71 @@ export const useGameStore = create<GameStore>()(
         s.characterStats = buildInitialStats()
         s.currentChapter = 1
         s.triggeredEvents = []
+        s.unlockedScenes = ['living-room', 'garden', 'terrace']
         s.inventory = {}
         s.dailyItemUsage = {}
         s.messages = []
         s.historySummary = ''
         s.endingType = null
-        s.activePanel = null
+        s.activeTab = 'dialogue'
+        s.showDashboard = false
+        s.showRecords = false
+        s.storyRecords = []
         s.streamingContent = ''
+        s.choices = [...QUICK_ACTIONS]
       })
       trackGameStart()
       trackModeSelect(mode)
     },
 
     selectCharacter: (id) => {
-      set((s) => { s.currentCharacter = id })
+      set((s) => {
+        s.currentCharacter = id
+        s.activeTab = 'dialogue'
+      })
     },
 
     selectScene: (id) => {
+      const prev = get().currentScene
       set((s) => {
         s.currentScene = id
         s.currentCharacter = null
+        if (!s.unlockedScenes.includes(id)) {
+          s.unlockedScenes.push(id)
+          trackSceneUnlock(id)
+        }
       })
       const scene = SCENES[id]
-      if (scene) {
-        get().addSystemMessage(`你来到了${scene.icon} ${scene.name}。${scene.description}`)
+      if (scene && id !== prev) {
+        set((s) => {
+          s.messages.push({
+            id: makeId(),
+            role: 'system',
+            content: `来到了${scene.name}`,
+            timestamp: Date.now(),
+            type: 'scene-transition',
+            sceneId: id,
+          })
+        })
       }
     },
 
-    togglePanel: (panel) => {
+    setActiveTab: (tab) => {
+      set((s) => { s.activeTab = tab })
+    },
+
+    toggleDashboard: () => {
       set((s) => {
-        s.activePanel = s.activePanel === panel ? null : panel
+        s.showDashboard = !s.showDashboard
+        if (s.showDashboard) s.showRecords = false
       })
     },
 
-    closePanel: () => {
-      set((s) => { s.activePanel = null })
+    toggleRecords: () => {
+      set((s) => {
+        s.showRecords = !s.showRecords
+        if (s.showRecords) s.showDashboard = false
+      })
     },
 
     sendMessage: async (text: string) => {
@@ -305,6 +312,7 @@ export const useGameStore = create<GameStore>()(
         if (state.messages.length > 15 && !state.historySummary) {
           const oldMessages = state.messages.slice(0, -10)
           const summaryText = oldMessages
+            .filter((m) => !m.type)
             .map((m) => `[${m.role}]: ${m.content.slice(0, 200)}`)
             .join('\n')
 
@@ -324,10 +332,12 @@ export const useGameStore = create<GameStore>()(
         const apiMessages = [
           { role: 'system' as const, content: systemPrompt },
           ...(historySummary ? [{ role: 'system' as const, content: `[历史摘要] ${historySummary}` }] : []),
-          ...recentMessages.map((m) => ({
-            role: m.role as 'user' | 'assistant' | 'system',
-            content: m.content,
-          })),
+          ...recentMessages
+            .filter((m) => !m.type)
+            .map((m) => ({
+              role: m.role as 'user' | 'assistant' | 'system',
+              content: m.content,
+            })),
           { role: 'user' as const, content: text },
         ]
 
@@ -357,6 +367,9 @@ export const useGameStore = create<GameStore>()(
           fullContent = fallbacks[Math.floor(Math.random() * fallbacks.length)]
         }
 
+        // 提取选项
+        const { cleanContent, choices } = extractChoices(fullContent)
+
         // 解析数值变化
         const changes = parseStatChanges(fullContent)
         set((s) => {
@@ -368,16 +381,28 @@ export const useGameStore = create<GameStore>()(
           }
         })
 
+        const period = PERIODS[get().currentPeriodIndex]
+
         set((s) => {
           s.messages.push({
             id: makeId(),
             role: 'assistant',
-            content: fullContent,
+            content: cleanContent || fullContent,
             character: state.currentCharacter ?? undefined,
             timestamp: Date.now(),
           })
           s.isTyping = false
           s.streamingContent = ''
+          s.choices = choices.length > 0 ? choices : [...QUICK_ACTIONS]
+
+          // 追加事件记录
+          s.storyRecords.push({
+            id: makeId(),
+            day: s.currentDay,
+            period: period.name,
+            title: char ? `与${char.name}互动` : '自由探索',
+            content: text.slice(0, 50),
+          })
         })
 
         // 自动存档
@@ -400,6 +425,8 @@ export const useGameStore = create<GameStore>()(
     },
 
     advanceTime: () => {
+      const prevDay = get().currentDay
+
       set((s) => {
         s.currentPeriodIndex++
         if (s.currentPeriodIndex >= PERIODS.length) {
@@ -425,20 +452,69 @@ export const useGameStore = create<GameStore>()(
       const period = PERIODS[state.currentPeriodIndex]
       trackTimeAdvance(state.currentDay, period.name)
 
-      // 章节推进消息
-      const chapter = getCurrentChapter(state.currentDay)
-      if (chapter.id !== get().currentChapter) {
+      // 跨天时注入日期变更富消息
+      if (state.currentDay !== prevDay) {
+        const chapter = getCurrentChapter(state.currentDay)
         trackChapterEnter(chapter.id)
-      }
 
-      get().addSystemMessage(`时间来到了第 ${state.currentDay} 天 · ${period.name}`)
+        set((s) => {
+          s.messages.push({
+            id: makeId(),
+            role: 'system',
+            content: `第${state.currentDay}天 · ${period.name}`,
+            timestamp: Date.now(),
+            type: 'day-change',
+            dayInfo: {
+              day: state.currentDay,
+              period: period.name,
+              chapter: chapter.name,
+            },
+          })
+
+          s.storyRecords.push({
+            id: makeId(),
+            day: state.currentDay,
+            period: period.name,
+            title: `进入第${state.currentDay}天`,
+            content: `${chapter.name} · ${period.name}`,
+          })
+
+          // 解锁更多场景
+          if (state.currentDay >= 3 && !s.unlockedScenes.includes('kitchen')) {
+            s.unlockedScenes.push('kitchen')
+            trackSceneUnlock('kitchen')
+          }
+          if (state.currentDay >= 5 && !s.unlockedScenes.includes('old-town')) {
+            s.unlockedScenes.push('old-town')
+            trackSceneUnlock('old-town')
+          }
+          if (state.currentDay >= 7 && !s.unlockedScenes.includes('lakeside')) {
+            s.unlockedScenes.push('lakeside')
+            trackSceneUnlock('lakeside')
+          }
+          if (state.currentDay >= 2 && !s.unlockedScenes.includes('female-dorm')) {
+            s.unlockedScenes.push('female-dorm', 'male-dorm')
+          }
+        })
+      } else {
+        get().addSystemMessage(`时间来到了第 ${state.currentDay} 天 · ${period.name}`)
+      }
 
       // 检查强制事件
       const events = getDayEvents(state.currentDay, state.triggeredEvents)
       for (const event of events) {
         if (event.triggerPeriod === undefined || event.triggerPeriod === state.currentPeriodIndex) {
-          set((s) => { s.triggeredEvents.push(event.id) })
-          get().addSystemMessage(`🎬 【${event.name}】${event.description}`)
+          set((s) => {
+            s.triggeredEvents.push(event.id)
+            s.storyRecords.push({
+              id: makeId(),
+              day: state.currentDay,
+              period: period.name,
+              title: event.name,
+              content: `触发事件：${event.name}`,
+            })
+          })
+          get().addSystemMessage(`【${event.name}】`)
         }
       }
 
@@ -450,10 +526,9 @@ export const useGameStore = create<GameStore>()(
 
     useItem: (itemId: string) => {
       const state = get()
-      const item = ITEMS[itemId]
+      const item = ITEMS.find((i) => i.id === itemId)
       if (!item) return
 
-      // 每日限制检查
       if (item.dailyLimit) {
         const used = state.dailyItemUsage[itemId] ?? 0
         if (used >= item.dailyLimit) {
@@ -462,13 +537,11 @@ export const useGameStore = create<GameStore>()(
         }
       }
 
-      // 需要目标角色
       if (item.requiresTarget && !state.currentCharacter) {
         get().addSystemMessage('请先选择一个嘉宾再使用道具。')
         return
       }
 
-      // 消耗道具（gift 类型需要背包中有）
       if (item.type === 'gift') {
         const count = state.inventory[itemId] ?? 0
         if (count <= 0) {
@@ -478,12 +551,10 @@ export const useGameStore = create<GameStore>()(
         set((s) => { s.inventory[itemId] = Math.max(0, (s.inventory[itemId] ?? 0) - 1) })
       }
 
-      // 记录每日使用次数
       if (item.dailyLimit) {
         set((s) => { s.dailyItemUsage[itemId] = (s.dailyItemUsage[itemId] ?? 0) + 1 })
       }
 
-      // 应用效果
       if (item.effects && state.currentCharacter) {
         const eff = item.effects[state.currentCharacter] ?? item.effects['_default']
         if (eff) {
@@ -506,37 +577,37 @@ export const useGameStore = create<GameStore>()(
 
     checkEnding: () => {
       const state = get()
-      const liumeiStats = state.characterStats['liumei']
 
       if (state.playMode === 'liumei') {
-        if (liumeiStats) {
-          // 刘枚线用其他角色对玩家的好感来判定
-          // 找好感度最高的男嘉宾
-          const maleChars = Object.entries(state.characterStats)
-            .filter(([id]) => CHARACTERS[id]?.gender === 'male')
-          const best = maleChars.reduce((a, b) => a[1].affection > b[1].affection ? a : b)
+        const maleChars = Object.entries(state.characterStats)
+          .filter(([id]) => CHARACTERS[id]?.gender === 'male')
+        const best = maleChars.reduce((a, b) => a[1].affection > b[1].affection ? a : b)
 
-          if (best[1].affection >= 80 && best[1].disgust < 20) {
-            set((s) => { s.endingType = 'liumei-he' })
-          } else if (best[1].affection >= 50 && best[1].disgust < 40) {
-            set((s) => { s.endingType = 'liumei-ne' })
-          } else {
-            set((s) => { s.endingType = 'liumei-be' })
-          }
+        let endingId: string
+        if (best[1].affection >= 80 && best[1].disgust < 20) {
+          endingId = 'liumei-he'
+        } else if (best[1].affection >= 50 && best[1].disgust < 40) {
+          endingId = 'liumei-ne'
+        } else {
+          endingId = 'liumei-be'
         }
+        set((s) => { s.endingType = endingId })
+        trackEndingReached(endingId)
       } else {
-        // 空降线
         const allStats = Object.entries(state.characterStats)
         const best = allStats.reduce((a, b) => a[1].affection > b[1].affection ? a : b)
         const avgReputation = allStats.reduce((sum, [, s]) => sum + s.reputation, 0) / allStats.length
 
+        let endingId: string
         if (best[1].affection >= 80 && avgReputation >= 60) {
-          set((s) => { s.endingType = 'newcomer-he' })
+          endingId = 'newcomer-he'
         } else if (best[1].affection >= 50) {
-          set((s) => { s.endingType = 'newcomer-ne' })
+          endingId = 'newcomer-ne'
         } else {
-          set((s) => { s.endingType = 'newcomer-be' })
+          endingId = 'newcomer-be'
         }
+        set((s) => { s.endingType = endingId })
+        trackEndingReached(endingId)
       }
     },
 
@@ -553,6 +624,9 @@ export const useGameStore = create<GameStore>()(
         s.historySummary = ''
         s.streamingContent = ''
         s.endingType = null
+        s.storyRecords = []
+        s.choices = [...QUICK_ACTIONS]
+        s.playerName = ''
       })
       get().clearSave()
     },
@@ -561,7 +635,7 @@ export const useGameStore = create<GameStore>()(
     saveGame: () => {
       const s = get()
       const data = {
-        version: 1,
+        version: 2,
         playMode: s.playMode,
         currentDay: s.currentDay,
         currentPeriodIndex: s.currentPeriodIndex,
@@ -571,11 +645,15 @@ export const useGameStore = create<GameStore>()(
         characterStats: s.characterStats,
         currentChapter: s.currentChapter,
         triggeredEvents: s.triggeredEvents,
+        unlockedScenes: s.unlockedScenes,
         inventory: s.inventory,
         dailyItemUsage: s.dailyItemUsage,
         messages: s.messages.slice(-30),
         historySummary: s.historySummary,
         endingType: s.endingType,
+        storyRecords: s.storyRecords.slice(-50),
+        choices: s.choices,
+        playerName: s.playerName,
       }
       localStorage.setItem(SAVE_KEY, JSON.stringify(data))
     },
@@ -585,7 +663,7 @@ export const useGameStore = create<GameStore>()(
         const raw = localStorage.getItem(SAVE_KEY)
         if (!raw) return false
         const data = JSON.parse(raw)
-        if (data.version !== 1) return false
+        if (data.version !== 2) return false
 
         set((s) => {
           s.gameStarted = true
@@ -598,11 +676,15 @@ export const useGameStore = create<GameStore>()(
           s.characterStats = data.characterStats
           s.currentChapter = data.currentChapter || 1
           s.triggeredEvents = data.triggeredEvents || []
+          s.unlockedScenes = data.unlockedScenes || ['living-room', 'garden', 'terrace']
           s.inventory = data.inventory
           s.dailyItemUsage = data.dailyItemUsage || {}
           s.messages = data.messages
           s.historySummary = data.historySummary || ''
           s.endingType = data.endingType || null
+          s.storyRecords = data.storyRecords || []
+          s.choices = data.choices || [...QUICK_ACTIONS]
+          s.playerName = data.playerName || ''
         })
         trackGameContinue()
         return true
@@ -615,7 +697,7 @@ export const useGameStore = create<GameStore>()(
       try {
         const raw = localStorage.getItem(SAVE_KEY)
         if (!raw) return false
-        return JSON.parse(raw).version === 1
+        return JSON.parse(raw).version === 2
       } catch {
         return false
       }
@@ -627,13 +709,18 @@ export const useGameStore = create<GameStore>()(
   }))
 )
 
-// 导出 data.ts 的所有内容，让其他模块可以直接从 store 导入
+// 导出 data.ts + parser.ts 的所有内容
 export {
-  CHARACTERS, SCENES, ITEMS, PERIODS, CHAPTERS,
+  CHARACTERS, SCENES, ITEMS, PERIODS, CHAPTERS, QUICK_ACTIONS,
   MAX_DAYS, MAX_ACTION_POINTS, STORY_INFO,
-  FORCED_EVENTS, ENDINGS,
-  getAffectionLevel, getMood, getRelationLabel,
+  FORCED_EVENTS, ENDINGS, ENDING_TYPE_MAP, STAT_METAS,
+  getAffectionLevel, getRelationLabel,
   getAvailableCharacters, getCurrentChapter,
 } from '@/lib/data'
 
-export type { PlayMode, Character, CharacterStats, Scene, GameItem, Chapter, ForcedEvent, Ending, TimePeriod, Message } from '@/lib/data'
+export type {
+  PlayMode, Character, CharacterStats, Scene, GameItem,
+  Chapter, ForcedEvent, Ending, TimePeriod, Message, StoryRecord, StatMeta,
+} from '@/lib/data'
+
+export { parseStoryParagraph, extractChoices } from '@/lib/parser'

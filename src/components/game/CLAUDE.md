@@ -1,16 +1,35 @@
 # components/game/
 > L2 | 父级: /CLAUDE.md
 
-恋综模拟器游戏 UI 组件层 — PC 三栏布局 + 移动端自适应 + 高光弹窗。
+恋综模拟器游戏 UI 组件层 — 移动优先唯一布局 + Tab导航 + 三向手势 + 双抽屉。
 
 ## 成员清单
 
 ```
-dialogue-panel.tsx   : 中间面板，场景背景 + 60%遮罩 + Chat Fiction 段落 + 流式显示 + 输入框 + 信笺(含subtitle)
-character-panel.tsx  : 左侧面板 280px，场景卡片 + 角色立绘 + 简介 + 4数值条(好感/嫉妒/厌恶/声望) + 2x5角色选择(按joinDay过滤)
-side-panel.tsx       : 右侧面板，图标导航栏 52px(🎒背包+💕关系) + 背包滑入面板 260px + 关系总览面板 260px
-mobile-layout.tsx    : 移动端全屏布局，场景快速切换 + 底部输入 + Sheet抽屉(角色/背包/菜单) + 结局面板
-highlight-modal.tsx  : 高光时刻弹窗，AI分析 + 生图 + 生视频，主色#d946ef
+app-shell.tsx        : 游戏主框架: Header(Day/时段/章节/BGM/菜单/📓/📜) + TabContent(AnimatePresence) + TabBar(5键:手册+3Tab+事件) + 三向手势(右滑左抽屉/左滑右抽屉) + DashboardDrawer + RecordSheet + Toast
+dashboard-drawer.tsx : 恋综手帐(左侧滑入): 6段Reorder拖拽排序(扉页+角色轮播+场景缩略图+章节目标+道具格+迷你播放器)，localStorage持久化
+tab-dialogue.tsx     : 对话Tab: 富消息路由(LetterCard/SceneTransitionCard/DayCard/NpcBubble+头像/PlayerBubble/SystemBubble/StreamingMessage) + CollapsibleChoices(A/B/C/D) + InventorySheet(背包) + InputArea
+tab-scene.tsx        : 场景Tab: SceneHero(9:16大图+渐变遮罩) + RelatedCharacters(头像标签) + LocationList(2列网格,locked/unlocked/current)
+tab-character.tsx    : 人物Tab: PortraitHero(9:16立绘) + StatBars(STAT_METAS驱动,4维relation) + RelationGraph(SVG环形,头像节点) + CharacterGrid(3列) + CharacterDossier(全屏右滑入+呼吸动画)
 ```
+
+## 数据流
+
+```
+store.ts (useGameStore)
+├── app-shell.tsx ← activeTab, showDashboard, showRecords, storyRecords
+├── dashboard-drawer.tsx ← currentDay, currentPeriodIndex, characterStats, unlockedScenes, inventory
+├── tab-dialogue.tsx ← messages, isTyping, streamingContent, choices, sendMessage
+├── tab-scene.tsx ← currentScene, unlockedScenes, selectScene, selectCharacter
+└── tab-character.tsx ← currentCharacter, characterStats, selectCharacter
+```
+
+## 关键模式
+
+- **富消息路由**: `msg.type` → SceneTransitionCard / DayCard; `msg.character` → NpcBubble; `msg.role` → PlayerBubble / SystemBubble
+- **StatMeta 驱动渲染**: 所有数值条遍历 STAT_METAS[]，零 if/else
+- **Phosphor Icons**: 所有 UI 图标用 @phosphor-icons/react，emoji 仅用于内容展示
+- **三向手势**: touchStart/touchEnd，dx>60px + dy<1.5x → 判定左/右滑
+- **Reorder 拖拽排序**: Framer Motion Reorder.Group + useDragControls，localStorage `lz-dash-order` 持久化
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

@@ -56,3 +56,8 @@ export function trackChapterEnter(chapter: number) {
 export function trackEndingReached(ending: string) {
   trackEvent('lz_ending_reached', { ending })
 }
+
+/** 解锁场景 */
+export function trackSceneUnlock(scene: string) {
+  trackEvent('lz_scene_unlock', { scene })
+}

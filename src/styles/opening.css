@@ -1,0 +1,211 @@
+/**
+ * [INPUT]: 依赖 globals.css CSS 变量
+ * [OUTPUT]: 黄昏时分说爱你开场屏样式 — 粉紫渐变 + 角色预览网格 + 双模式按钮
+ * [POS]: styles 的开场专用样式，StartScreen 组件消费
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
+/* ── 开场背景 ──────────────────────────────────────── */
+
+.lz-opening {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(165deg, #fef7ff 0%, #fce7f3 35%, #f5f0ff 65%, #fef7ff 100%);
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+}
+
+.lz-opening::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 25% 20%, rgba(217, 70, 239, 0.1) 0%, transparent 45%),
+    radial-gradient(circle at 75% 70%, rgba(236, 72, 153, 0.08) 0%, transparent 40%);
+  pointer-events: none;
+}
+
+.lz-opening-content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 480px;
+  text-align: center;
+}
+
+/* ── 标题区域 ──────────────────────────────────────── */
+
+.lz-opening-icon {
+  font-size: 52px;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 4px 8px rgba(217, 70, 239, 0.15));
+}
+
+.lz-opening-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+}
+
+.lz-opening-subtitle {
+  font-size: 13px;
+  color: var(--primary);
+  opacity: 0.8;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.lz-opening-desc {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  max-width: 360px;
+  margin: 0 auto 24px;
+}
+
+/* ── 角色预览网格（2行×5列） ──────────────────────── */
+
+.lz-opening-roster {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.lz-opening-char {
+  width: 56px;
+  text-align: center;
+}
+
+.lz-opening-char-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 0 auto 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s;
+}
+
+.lz-opening-char-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.lz-opening-char-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lz-opening-char-gender {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── 操作按钮组 ──────────────────────────────────── */
+
+.lz-opening-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.lz-opening-btn-primary {
+  width: 100%;
+  padding: 13px 24px;
+  border: none;
+  border-radius: 100px;
+  background: linear-gradient(135deg, #d946ef 0%, #ec4899 100%);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(217, 70, 239, 0.3);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.lz-opening-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(217, 70, 239, 0.4);
+}
+
+.lz-opening-btn-primary:active {
+  transform: scale(0.97);
+}
+
+.lz-opening-btn-secondary {
+  width: 100%;
+  padding: 13px 24px;
+  background: transparent;
+  border: 1.5px solid rgba(217, 70, 239, 0.3);
+  border-radius: 100px;
+  color: var(--primary);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.lz-opening-btn-secondary:hover {
+  background: rgba(217, 70, 239, 0.06);
+  border-color: rgba(217, 70, 239, 0.5);
+}
+
+.lz-opening-btn-secondary:active {
+  transform: scale(0.97);
+}
+
+.lz-opening-btn-continue {
+  width: 100%;
+  padding: 13px 24px;
+  background: transparent;
+  border: 1.5px solid rgba(217, 70, 239, 0.15);
+  border-radius: 100px;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.lz-opening-btn-continue:hover {
+  border-color: rgba(217, 70, 239, 0.3);
+  color: var(--text-secondary);
+}
+
+/* ── 音乐按钮 ──────────────────────────────────────── */
+
+.lz-opening-music {
+  margin-top: 12px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.lz-opening-music:hover {
+  color: var(--text-secondary);
+}
+
+/* ── 桌面居中 ──────────────────────────────────────── */
+
+@media (min-width: 431px) {
+  .lz-opening {
+    background:
+      linear-gradient(165deg, #fef7ff 0%, #fce7f3 35%, #f5f0ff 65%, #fef7ff 100%);
+  }
+}
