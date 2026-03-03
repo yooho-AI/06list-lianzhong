@@ -366,6 +366,7 @@
 
 /* ── 10. Letter Card — 欢迎信笺 ────────────────────────── */
 .lz-letter {
+  flex-shrink: 0;
   position: relative; align-self: center; width: 92%; max-width: 340px;
   background: rgba(255, 255, 255, 0.8);
   border: 1px solid rgba(217, 70, 239, 0.12);

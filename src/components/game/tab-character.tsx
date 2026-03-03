@@ -7,11 +7,13 @@
 
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { ChatCircleDots } from '@phosphor-icons/react'
 import {
   useGameStore,
   CHARACTERS, STAT_METAS,
   getAvailableCharacters, getAffectionLevel, getRelationLabel,
 } from '@/lib/store'
+import CharacterChat from './character-chat'
 
 // ── PortraitHero ────────────────────────────────────────
 
@@ -145,7 +147,7 @@ function RelationGraph({ onSelect }: { onSelect: (id: string) => void }) {
 
 // ── CharacterGrid ───────────────────────────────────────
 
-function CharacterGrid({ onSelect }: { onSelect: (id: string) => void }) {
+function CharacterGrid({ onSelect, onChat }: { onSelect: (id: string) => void; onChat: (id: string) => void }) {
   const currentDay = useGameStore((s) => s.currentDay)
   const currentCharacter = useGameStore((s) => s.currentCharacter)
   const characterStats = useGameStore((s) => s.characterStats)
@@ -166,6 +168,7 @@ function CharacterGrid({ onSelect }: { onSelect: (id: string) => void }) {
             key={id}
             onClick={() => onSelect(id)}
             style={{
+              position: 'relative',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
               padding: '10px 4px', borderRadius: 12,
               background: active ? `${char.themeColor}10` : 'var(--bg-card)',
@@ -173,6 +176,19 @@ function CharacterGrid({ onSelect }: { onSelect: (id: string) => void }) {
               cursor: 'pointer', transition: 'all 0.2s',
             }}
           >
+            {/* 聊天按钮 */}
+            <div
+              onClick={(e) => { e.stopPropagation(); onChat(id) }}
+              style={{
+                position: 'absolute', top: 4, right: 4, zIndex: 2,
+                width: 22, height: 22, borderRadius: '50%',
+                background: `${char.themeColor}20`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <ChatCircleDots size={12} weight="fill" color={char.themeColor} />
+            </div>
             <div style={{
               width: 48, height: 48, borderRadius: '50%', overflow: 'hidden',
               border: `2px solid ${char.themeColor}`,
@@ -269,6 +285,7 @@ function CharacterDossier({
 export default function TabCharacter() {
   const selectCharacter = useGameStore((s) => s.selectCharacter)
   const [dossierChar, setDossierChar] = useState<string | null>(null)
+  const [chatChar, setChatChar] = useState<string | null>(null)
 
   const handleSelect = (id: string) => {
     selectCharacter(id)
@@ -287,7 +304,7 @@ export default function TabCharacter() {
       <div style={{ padding: '4px 16px 8px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
         嘉宾列表
       </div>
-      <CharacterGrid onSelect={(id) => setDossierChar(id)} />
+      <CharacterGrid onSelect={(id) => setDossierChar(id)} onChat={(id) => setChatChar(id)} />
 
       {/* Dossier overlay */}
       {dossierChar && (
@@ -296,6 +313,13 @@ export default function TabCharacter() {
           onClose={() => setDossierChar(null)}
         />
       )}
+
+      {/* Character Chat */}
+      <AnimatePresence>
+        {chatChar && (
+          <CharacterChat charId={chatChar} onClose={() => setChatChar(null)} />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

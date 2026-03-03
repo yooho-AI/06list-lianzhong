@@ -950,6 +950,19 @@ body {
 
 .lz-float { animation: lzFloat 3s ease-in-out infinite; }
 
+/* ── Chat Header ──────────────────────────────────── */
+.lz-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
 /* ================================================================
    开场页基础
    ================================================================ */

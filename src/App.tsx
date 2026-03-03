@@ -40,11 +40,14 @@ function StartScreen() {
     loadGame()
   }, [loadGame])
 
+  const sendMessage = useGameStore((s) => s.sendMessage)
+
   const handleStart = (mode: 'liumei' | 'newcomer') => {
     trackGameStart()
     setPlayerInfo(name.trim() || '玩家')
     selectPlayMode(mode)
     initGame()
+    setTimeout(() => sendMessage('开始游戏'), 500)
   }
 
   return (
