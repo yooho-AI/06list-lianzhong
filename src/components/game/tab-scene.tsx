@@ -1,109 +1,248 @@
 /**
  * [INPUT]: 依赖 store.ts 状态（场景/角色/解锁状态）
  * [OUTPUT]: 对外提供 TabScene 组件
- * [POS]: 场景Tab：9:16大图 + 当前场景角色标签 + 地点列表(locked/unlocked/current)
+ * [POS]: 场景Tab：当前场景横幅 + 2列场景网格(thumbnail+锁定/当前) + SceneDetail全屏覆盖(overlay+sheet)
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   useGameStore,
   SCENES,
-  getAvailableCharacters,
 } from '@/lib/store'
 
-// ── SceneHero ───────────────────────────────────────────
+const P = 'lz'
 
-function SceneHero() {
+// ── Scene Detail (Full-screen overlay) ──────────────
+function SceneDetail({
+  sceneId,
+  onClose,
+}: {
+  sceneId: string
+  onClose: () => void
+}) {
+  const scene = SCENES[sceneId]
   const currentScene = useGameStore((s) => s.currentScene)
-  const scene = SCENES[currentScene]
+  const selectScene = useGameStore((s) => s.selectScene)
+  const isCurrent = sceneId === currentScene
+
   if (!scene) return null
 
   return (
-    <div className="lz-scene-hero">
-      <img src={scene.background} alt={scene.name} />
-      <div className="scene-overlay">
-        <div className="scene-name">{scene.icon} {scene.name}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-          {scene.atmosphere}
+    <>
+      <motion.div
+        className={`${P}-dossier-overlay`}
+        style={{ background: 'rgba(0,0,0,0.5)', overflow: 'visible' }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+      />
+      <motion.div
+        className={`${P}-records-sheet`}
+        style={{ zIndex: 52, overflowY: 'auto' }}
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+      >
+        <button className={`${P}-dossier-close`} onClick={onClose}>✕</button>
+
+        {/* Scene Image */}
+        <div className={`${P}-dossier-portrait`}>
+          <img src={scene.background} alt={scene.name} />
+          <div className={`${P}-dossier-gradient`} />
         </div>
-      </div>
-    </div>
+
+        {/* Info */}
+        <div className={`${P}-dossier-content`}>
+          <div className={`${P}-dossier-name`}>
+            {scene.icon} {scene.name}
+            {isCurrent && (
+              <span style={{
+                fontSize: 11, padding: '2px 8px', borderRadius: 10, marginLeft: 8,
+                background: 'var(--primary)', color: '#fff', fontWeight: 600,
+                verticalAlign: 'middle',
+              }}>
+                当前
+              </span>
+            )}
+          </div>
+
+          {/* Atmosphere */}
+          <div style={{
+            display: 'inline-block', padding: '2px 10px', borderRadius: 12,
+            background: 'rgba(217, 70, 239, 0.1)', color: 'var(--primary)',
+            fontSize: 12, fontWeight: 600, marginBottom: 12,
+          }}>
+            {scene.atmosphere}
+          </div>
+
+          {/* Tags */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+            {scene.tags.map((tag) => (
+              <span key={tag} style={{
+                padding: '3px 10px', borderRadius: 12,
+                background: 'var(--bg-card)', border: '1px solid rgba(0,0,0,0.08)',
+                fontSize: 11, color: 'var(--text-muted)',
+              }}>
+                {tag}
+              </span>
+            ))}
+          </div>
+
+          {/* Move button */}
+          {!isCurrent && (
+            <button
+              onClick={() => {
+                selectScene(sceneId)
+                onClose()
+              }}
+              style={{
+                width: '100%', padding: '12px 0', borderRadius: 12,
+                background: 'var(--primary)', color: '#fff',
+                border: 'none', fontSize: 14, fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              移动到此场景
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </>
   )
 }
 
-// ── RelatedCharacters ───────────────────────────────────
-
-function RelatedCharacters() {
-  const currentDay = useGameStore((s) => s.currentDay)
-  const currentCharacter = useGameStore((s) => s.currentCharacter)
-  const selectCharacter = useGameStore((s) => s.selectCharacter)
-  const setActiveTab = useGameStore((s) => s.setActiveTab)
-
-  const available = getAvailableCharacters(currentDay)
-
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '0 12px', marginBottom: 16 }}>
-      {Object.entries(available).map(([id, char]) => (
-        <button
-          key={id}
-          className="lz-char-tag"
-          style={id === currentCharacter ? { borderColor: char.themeColor, background: `${char.themeColor}10` } : undefined}
-          onClick={() => {
-            selectCharacter(id)
-            setActiveTab('character')
-          }}
-        >
-          <img src={char.portrait} alt={char.name} style={{ borderColor: char.themeColor }} />
-          <span>{char.name}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
-// ── LocationList ────────────────────────────────────────
-
-function LocationList() {
+// ── Main Component ──────────────────────────────────
+export default function TabScene() {
   const currentScene = useGameStore((s) => s.currentScene)
   const unlockedScenes = useGameStore((s) => s.unlockedScenes)
-  const selectScene = useGameStore((s) => s.selectScene)
+
+  const [detailScene, setDetailScene] = useState<string | null>(null)
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '0 12px' }}>
-      {Object.entries(SCENES).map(([sid, scene]) => {
-        const locked = !unlockedScenes.includes(sid)
-        const current = sid === currentScene
-        return (
+    <div className={`${P}-scrollbar`} style={{ height: '100%', overflowY: 'auto', padding: 12 }}>
+      {/* ── 当前场景 ── */}
+      {SCENES[currentScene] && (
+        <>
+          <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, paddingLeft: 4 }}>
+            📍 当前位置
+          </h4>
           <button
-            key={sid}
-            className={`lz-location-tag ${current ? 'lz-location-active' : ''}`}
-            disabled={locked}
-            onClick={() => { if (!locked && !current) selectScene(sid) }}
-            style={locked ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+            onClick={() => setDetailScene(currentScene)}
+            style={{
+              width: '100%', borderRadius: 16, overflow: 'hidden',
+              background: 'var(--bg-card)', border: '1px solid rgba(0,0,0,0.06)',
+              cursor: 'pointer', marginBottom: 20, padding: 0,
+            }}
           >
-            <span style={{ fontSize: 20 }}>{locked ? '🔒' : scene.icon}</span>
-            <div>
-              <div className="loc-name">{scene.name}</div>
-              <div className="loc-desc">{scene.atmosphere}</div>
+            <div style={{ position: 'relative', height: 120, overflow: 'hidden' }}>
+              <img
+                src={SCENES[currentScene].background}
+                alt={SCENES[currentScene].name}
+                loading="lazy"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                padding: '20px 12px 8px',
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.6))',
+              }}>
+                <span style={{ color: '#fff', fontSize: 15, fontWeight: 600 }}>
+                  {SCENES[currentScene].icon} {SCENES[currentScene].name}
+                </span>
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11, marginLeft: 8 }}>
+                  {SCENES[currentScene].atmosphere}
+                </span>
+              </div>
             </div>
           </button>
-        )
-      })}
-    </div>
-  )
-}
+        </>
+      )}
 
-// ══════════════════════════════════════════════════════════
-//  Main Component
-// ══════════════════════════════════════════════════════════
+      {/* ── 场景网格 (2列) ── */}
+      <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, paddingLeft: 4 }}>
+        🗺️ 探索地点
+      </h4>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 20 }}>
+        {Object.values(SCENES).map((s) => {
+          const locked = !unlockedScenes.includes(s.id)
+          const active = s.id === currentScene
 
-export default function TabScene() {
-  return (
-    <div className="lz-scrollbar" style={{ height: '100%', overflowY: 'auto', padding: '12px 0' }}>
-      <SceneHero />
-      <RelatedCharacters />
-      <LocationList />
+          return (
+            <button
+              key={s.id}
+              onClick={() => !locked && setDetailScene(s.id)}
+              disabled={locked}
+              style={{
+                display: 'flex', flexDirection: 'column',
+                borderRadius: 12, overflow: 'hidden',
+                background: 'var(--bg-card)',
+                border: active ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,0.06)',
+                cursor: locked ? 'not-allowed' : 'pointer',
+                opacity: locked ? 0.4 : 1,
+                padding: 0,
+                transition: 'all 0.2s',
+              }}
+            >
+              {/* Scene thumbnail */}
+              <div style={{ height: 80, overflow: 'hidden', position: 'relative' }}>
+                <img
+                  src={s.background}
+                  alt={s.name}
+                  loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+                {locked && (
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(0,0,0,0.4)',
+                    fontSize: 20,
+                  }}>
+                    🔒
+                  </div>
+                )}
+                {active && (
+                  <span style={{
+                    position: 'absolute', top: 4, right: 4,
+                    fontSize: 9, padding: '1px 6px', borderRadius: 8,
+                    background: 'var(--primary)', color: '#fff', fontWeight: 600,
+                  }}>
+                    当前
+                  </span>
+                )}
+              </div>
+              {/* Scene info */}
+              <div style={{ padding: '6px 8px', textAlign: 'left' }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  {s.icon} {s.name}
+                </div>
+                <div style={{
+                  fontSize: 10, color: 'var(--text-muted)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {s.tags.join(' · ')}
+                </div>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
       <div style={{ height: 16 }} />
+
+      {/* ── Scene Detail Overlay ── */}
+      <AnimatePresence>
+        {detailScene && SCENES[detailScene] && (
+          <SceneDetail
+            sceneId={detailScene}
+            onClose={() => setDetailScene(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

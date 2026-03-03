@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 store.ts 状态（角色/数值/关系）
  * [OUTPUT]: 对外提供 TabCharacter 组件
- * [POS]: 人物Tab：立绘Hero + StatMeta驱动数值条 + SVG环形RelationGraph + 角色网格 + CharacterDossier全屏档案
+ * [POS]: 人物Tab：2x2角色网格(聊天按钮+mini好感条) + SVG环形RelationGraph + CharacterDossier(overlay+sheet) + CharacterChat
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -15,81 +15,9 @@ import {
 } from '@/lib/store'
 import CharacterChat from './character-chat'
 
-// ── PortraitHero ────────────────────────────────────────
-
-function PortraitHero() {
-  const currentCharacter = useGameStore((s) => s.currentCharacter)
-  const characterStats = useGameStore((s) => s.characterStats)
-
-  const char = currentCharacter ? CHARACTERS[currentCharacter] : null
-  if (!char) return (
-    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-      请选择一位嘉宾查看详情
-    </div>
-  )
-
-  const stats = characterStats[char.id]
-  const level = getAffectionLevel(stats?.affection ?? 0)
-
-  return (
-    <div className="lz-scene-hero" style={{ marginBottom: 0 }}>
-      <img src={char.portrait} alt={char.name} />
-      <div className="scene-overlay">
-        <div className="scene-name" style={{ color: char.themeColor }}>
-          {char.name}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-          {char.title} · {char.age}岁 · {level.name}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── StatBars (StatMeta driven) ──────────────────────────
-
-function StatBars() {
-  const currentCharacter = useGameStore((s) => s.currentCharacter)
-  const characterStats = useGameStore((s) => s.characterStats)
-
-  if (!currentCharacter) return null
-  const stats = characterStats[currentCharacter]
-  if (!stats) return null
-
-  return (
-    <div style={{ padding: '16px 16px 0' }}>
-      {STAT_METAS.map((meta, i) => {
-        const val = stats[meta.key] ?? 0
-        return (
-          <div key={meta.key} style={{
-            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10,
-          }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 48, flexShrink: 0 }}>
-              {meta.icon} {meta.label}
-            </span>
-            <div style={{
-              flex: 1, height: 6, borderRadius: 3,
-              background: 'rgba(0,0,0,0.06)', overflow: 'hidden',
-            }}>
-              <div style={{
-                width: `${Math.min(val, 100)}%`, height: '100%', borderRadius: 3,
-                background: meta.color, transition: 'width 0.5s ease',
-                animationDelay: `${i * 0.1}s`,
-              }} />
-            </div>
-            <span style={{
-              fontSize: 11, fontWeight: 600, color: meta.color,
-              fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right',
-            }}>{val}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+const P = 'lz'
 
 // ── RelationGraph (SVG ring layout) ─────────────────────
-
 function RelationGraph({ onSelect }: { onSelect: (id: string) => void }) {
   const currentDay = useGameStore((s) => s.currentDay)
   const characterStats = useGameStore((s) => s.characterStats)
@@ -99,11 +27,11 @@ function RelationGraph({ onSelect }: { onSelect: (id: string) => void }) {
   const cx = 190, cy = 150, r = 110
 
   return (
-    <div className="lz-relation-wrap">
-      <div className="lz-relation-svg">
+    <div className={`${P}-relation-wrap`}>
+      <div className={`${P}-relation-svg`}>
         <svg viewBox="0 0 380 300">
           {/* Center "我" */}
-          <text x={cx} y={cy + 5} className="lz-relation-center" textAnchor="middle">我</text>
+          <text x={cx} y={cy + 5} className={`${P}-relation-center`} textAnchor="middle">我</text>
 
           {entries.map(([id, char], i) => {
             const angle = (2 * Math.PI * i) / entries.length - Math.PI / 2
@@ -117,9 +45,9 @@ function RelationGraph({ onSelect }: { onSelect: (id: string) => void }) {
             return (
               <g key={id} onClick={() => onSelect(id)} style={{ cursor: 'pointer' }}>
                 {/* Connection line */}
-                <line x1={cx} y1={cy} x2={nx} y2={ny} className="lz-relation-line" />
+                <line x1={cx} y1={cy} x2={nx} y2={ny} className={`${P}-relation-line`} />
                 {/* Relation label */}
-                <text x={midX} y={midY - 6} className="lz-relation-label">{label}</text>
+                <text x={midX} y={midY - 6} className={`${P}-relation-label`}>{label}</text>
                 {/* Node circle with portrait */}
                 <defs>
                   <clipPath id={`clip-${id}`}>
@@ -135,7 +63,7 @@ function RelationGraph({ onSelect }: { onSelect: (id: string) => void }) {
                   preserveAspectRatio="xMidYMin slice"
                 />
                 {/* Name */}
-                <text x={nx} y={ny + 32} className="lz-relation-node-name">{char.name}</text>
+                <text x={nx} y={ny + 32} className={`${P}-relation-node-name`}>{char.name}</text>
               </g>
             )
           })}
@@ -145,120 +73,64 @@ function RelationGraph({ onSelect }: { onSelect: (id: string) => void }) {
   )
 }
 
-// ── CharacterGrid ───────────────────────────────────────
-
-function CharacterGrid({ onSelect, onChat }: { onSelect: (id: string) => void; onChat: (id: string) => void }) {
-  const currentDay = useGameStore((s) => s.currentDay)
-  const currentCharacter = useGameStore((s) => s.currentCharacter)
-  const characterStats = useGameStore((s) => s.characterStats)
-
-  const available = getAvailableCharacters(currentDay)
-
-  return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-      gap: 10, padding: '0 16px 16px',
-    }}>
-      {Object.entries(available).map(([id, char]) => {
-        const active = id === currentCharacter
-        const stats = characterStats[id]
-        const affection = stats?.affection ?? 0
-        return (
-          <button
-            key={id}
-            onClick={() => onSelect(id)}
-            style={{
-              position: 'relative',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-              padding: '10px 4px', borderRadius: 12,
-              background: active ? `${char.themeColor}10` : 'var(--bg-card)',
-              border: `1.5px solid ${active ? char.themeColor : 'var(--border)'}`,
-              cursor: 'pointer', transition: 'all 0.2s',
-            }}
-          >
-            {/* 聊天按钮 */}
-            <div
-              onClick={(e) => { e.stopPropagation(); onChat(id) }}
-              style={{
-                position: 'absolute', top: 4, right: 4, zIndex: 2,
-                width: 22, height: 22, borderRadius: '50%',
-                background: `${char.themeColor}20`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <ChatCircleDots size={12} weight="fill" color={char.themeColor} />
-            </div>
-            <div style={{
-              width: 48, height: 48, borderRadius: '50%', overflow: 'hidden',
-              border: `2px solid ${char.themeColor}`,
-            }}>
-              <img src={char.portrait} alt={char.name}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top' }} />
-            </div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: active ? char.themeColor : 'var(--text-primary)' }}>
-              {char.name}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-              好感 {affection}
-            </div>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── CharacterDossier (full-screen slide-in) ─────────────
-
+// ── CharacterDossier (overlay + sheet) ─────────────
 function CharacterDossier({
   charId, onClose,
 }: {
-  charId: string | null
+  charId: string
   onClose: () => void
 }) {
   const characterStats = useGameStore((s) => s.characterStats)
-  const char = charId ? CHARACTERS[charId] : null
+  const char = CHARACTERS[charId]
   if (!char) return null
 
-  const stats = characterStats[charId!]
+  const stats = characterStats[charId]
   const level = getAffectionLevel(stats?.affection ?? 0)
 
   return (
-    <AnimatePresence>
+    <>
       <motion.div
-        className="lz-dossier-overlay"
+        className={`${P}-dossier-overlay`}
+        style={{ background: 'rgba(0,0,0,0.5)', overflow: 'visible' }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+      />
+      <motion.div
+        className={`${P}-records-sheet`}
+        style={{ zIndex: 52, overflowY: 'auto' }}
         initial={{ x: '100%' }}
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 26, stiffness: 300 }}
       >
         {/* Portrait */}
-        <div className="lz-dossier-portrait">
+        <div className={`${P}-dossier-portrait`}>
           <img src={char.portrait} alt={char.name} />
-          <div className="lz-dossier-gradient" />
-          <button className="lz-dossier-close" onClick={onClose}>✕</button>
+          <div className={`${P}-dossier-gradient`} />
+          <button className={`${P}-dossier-close`} onClick={onClose}>✕</button>
         </div>
 
         {/* Content */}
-        <div className="lz-dossier-content">
-          <div className="lz-dossier-name">{char.name}</div>
-          <div className="lz-dossier-subtitle">{char.title} · {char.age}岁 · {level.name}</div>
-          <div className="lz-dossier-desc">{char.shortDesc}</div>
+        <div className={`${P}-dossier-content`}>
+          <div className={`${P}-dossier-name`}>{char.name}</div>
+          <div className={`${P}-dossier-subtitle`}>{char.title} · {char.age}岁 · {level.name}</div>
+          <div className={`${P}-dossier-desc`}>{char.shortDesc}</div>
 
           {/* Stat bars */}
           {stats && (
-            <div className="lz-dossier-stats">
+            <div className={`${P}-dossier-stats`}>
               {STAT_METAS.map((meta) => {
                 const val = stats[meta.key] ?? 0
                 return (
-                  <div key={meta.key} className="lz-dossier-stat-row">
-                    <span className="lz-dossier-stat-label">{meta.icon} {meta.label}</span>
-                    <div className="lz-dossier-stat-track">
-                      <div className="lz-dossier-stat-fill"
+                  <div key={meta.key} className={`${P}-dossier-stat-row`}>
+                    <span className={`${P}-dossier-stat-label`}>{meta.icon} {meta.label}</span>
+                    <div className={`${P}-dossier-stat-track`}>
+                      <div className={`${P}-dossier-stat-fill`}
                         style={{ width: `${Math.min(val, 100)}%`, background: meta.color }} />
                     </div>
-                    <span className="lz-dossier-stat-val" style={{ color: meta.color }}>{val}</span>
+                    <span className={`${P}-dossier-stat-val`} style={{ color: meta.color }}>{val}</span>
                   </div>
                 )
               })}
@@ -266,15 +138,15 @@ function CharacterDossier({
           )}
 
           {/* Tags */}
-          <div className="lz-dossier-tags">
-            <span className="lz-dossier-tag">{char.gender === 'female' ? '♀ 女' : '♂ 男'}</span>
+          <div className={`${P}-dossier-tags`}>
+            <span className={`${P}-dossier-tag`}>{char.gender === 'female' ? '♀ 女' : '♂ 男'}</span>
             {char.tags.map((tag) => (
-              <span key={tag} className="lz-dossier-tag">{tag}</span>
+              <span key={tag} className={`${P}-dossier-tag`}>{tag}</span>
             ))}
           </div>
         </div>
       </motion.div>
-    </AnimatePresence>
+    </>
   )
 }
 
@@ -283,38 +155,102 @@ function CharacterDossier({
 // ══════════════════════════════════════════════════════════
 
 export default function TabCharacter() {
-  const selectCharacter = useGameStore((s) => s.selectCharacter)
+  const currentDay = useGameStore((s) => s.currentDay)
+  const characterStats = useGameStore((s) => s.characterStats)
+
   const [dossierChar, setDossierChar] = useState<string | null>(null)
   const [chatChar, setChatChar] = useState<string | null>(null)
 
-  const handleSelect = (id: string) => {
-    selectCharacter(id)
-  }
+  const available = getAvailableCharacters(currentDay)
 
   return (
-    <div className="lz-scrollbar" style={{ height: '100%', overflowY: 'auto' }}>
-      <PortraitHero />
-      <StatBars />
-
-      <div style={{ padding: '12px 16px 8px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-        关系网络
+    <div className={`${P}-scrollbar`} style={{ height: '100%', overflowY: 'auto', padding: 12 }}>
+      {/* ── 嘉宾网格 (2x2) ── */}
+      <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, paddingLeft: 4 }}>
+        💕 嘉宾列表
+      </h4>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 20 }}>
+        {Object.entries(available).map(([id, char]) => {
+          const stats = characterStats[id]
+          const affection = stats?.affection ?? 0
+          const level = getAffectionLevel(affection)
+          return (
+            <button
+              key={id}
+              onClick={() => setDossierChar(id)}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                padding: 10, borderRadius: 12,
+                background: 'var(--bg-card)',
+                border: '1px solid rgba(0,0,0,0.06)',
+                cursor: 'pointer', transition: 'all 0.2s',
+                position: 'relative',
+              }}
+            >
+              {/* 聊天按钮 */}
+              <div
+                onClick={(e) => { e.stopPropagation(); setChatChar(id) }}
+                style={{
+                  position: 'absolute', top: 6, left: 6,
+                  width: 28, height: 28, borderRadius: '50%',
+                  background: `${char.themeColor}18`,
+                  border: `1px solid ${char.themeColor}30`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', zIndex: 1,
+                }}
+              >
+                <ChatCircleDots size={16} weight="fill" color={char.themeColor} />
+              </div>
+              <img
+                src={char.portrait}
+                alt={char.name}
+                style={{
+                  width: 56, height: 56, borderRadius: '50%',
+                  objectFit: 'cover', objectPosition: 'center top',
+                  border: `2px solid ${char.themeColor}44`,
+                  marginBottom: 6,
+                }}
+              />
+              <span style={{ fontSize: 12, fontWeight: 500, color: char.themeColor }}>
+                {char.name}
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>
+                {char.title}
+              </span>
+              {/* Mini affection bar */}
+              <div style={{ width: '80%', height: 3, borderRadius: 2, background: 'rgba(0,0,0,0.06)' }}>
+                <div style={{
+                  height: '100%', borderRadius: 2, background: char.themeColor,
+                  width: `${affection}%`, transition: 'width 0.5s ease',
+                }} />
+              </div>
+              <span style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+                {level.name} {affection}
+              </span>
+            </button>
+          )
+        })}
       </div>
-      <RelationGraph onSelect={handleSelect} />
 
-      <div style={{ padding: '4px 16px 8px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-        嘉宾列表
-      </div>
-      <CharacterGrid onSelect={(id) => setDossierChar(id)} onChat={(id) => setChatChar(id)} />
+      {/* ── 关系图 ── */}
+      <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8, paddingLeft: 4 }}>
+        🕸️ 关系网络
+      </h4>
+      <RelationGraph onSelect={(id) => setDossierChar(id)} />
 
-      {/* Dossier overlay */}
-      {dossierChar && (
-        <CharacterDossier
-          charId={dossierChar}
-          onClose={() => setDossierChar(null)}
-        />
-      )}
+      <div style={{ height: 16 }} />
 
-      {/* Character Chat */}
+      {/* ── Dossier overlay ── */}
+      <AnimatePresence>
+        {dossierChar && (
+          <CharacterDossier
+            charId={dossierChar}
+            onClose={() => setDossierChar(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Character Chat ── */}
       <AnimatePresence>
         {chatChar && (
           <CharacterChat charId={chatChar} onClose={() => setChatChar(null)} />
